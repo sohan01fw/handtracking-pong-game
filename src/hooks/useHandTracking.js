@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { Hands } from '@mediapipe/hands';
-import { Camera } from '@mediapipe/camera_utils';
+import * as mpHands from '@mediapipe/hands';
+import * as mpCamera from '@mediapipe/camera_utils';
+
+// Handling potential differences in how MediaPipe is bundled in prod vs dev
+const Hands = mpHands.Hands || (mpHands.default && mpHands.default.Hands) || mpHands;
+const Camera = mpCamera.Camera || (mpCamera.default && mpCamera.default.Camera) || mpCamera;
 
 export function useHandTracking() {
     const videoRef = useRef(null);
