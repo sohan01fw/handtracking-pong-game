@@ -13,6 +13,9 @@ const WINNING_SCORE = 20;
 // Sound effects
 const paddleHitSound = new Audio('/sounds/paddle_hit.wav');
 const winSound = new Audio('/sounds/win.wav');
+const bgMusic = new Audio('/sounds/masso.mp3');
+bgMusic.loop = true;
+bgMusic.volume = 0.4; // Set to a comfortable background level
 
 export default function App() {
     const [gameState, setGameState] = useState('menu'); // 'menu', 'modeSelect', 'playing'
@@ -81,6 +84,17 @@ export default function App() {
             window.removeEventListener('keyup', handleKeyUp);
         };
     }, []);
+
+    // Music control effect
+    useEffect(() => {
+        if (musicEnabled) {
+            bgMusic.play().catch(error => {
+                console.log("Autoplay prevented. Music will start after user interaction.", error);
+            });
+        } else {
+            bgMusic.pause();
+        }
+    }, [musicEnabled, gameState]);
 
     useEffect(() => {
         const gameLoop = () => {
@@ -389,7 +403,7 @@ export default function App() {
                         textShadow: '0 0 30px #00ff88',
                         letterSpacing: '10px'
                     }}>
-                        PONG.AI
+                        PONG
                     </h1>
                     <button
                         style={menuButtonStyle}
@@ -500,7 +514,7 @@ export default function App() {
                         top: '20px'
                     }}>
                         <h1 style={{ color: '#00ff88', fontSize: '1.5rem', margin: 0, textShadow: '0 0 20px #00ff88' }}>
-                            PONG.AI
+                            PONG
                         </h1>
                         <button
                             style={{ ...secondaryButtonStyle, padding: '5px 15px', fontSize: '12px', width: 'auto' }}
