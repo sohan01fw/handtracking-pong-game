@@ -16,11 +16,32 @@ export default function GameCanvas({
     opponentCharge = 0,
     playerCooldown = 0,
     opponentCooldown = 0,
-    ghostCooldown = 0,
-    tripleCooldown = 0,
+    playerGhostCooldown = 0,
+    opponentGhostCooldown = 0,
+    playerTripleCooldown = 0,
+    opponentTripleCooldown = 0,
     decoys = [],
-    powerMessage = ""
+    powerMessage = "",
+    isMultiplayer = false,
+    isHost = false
 }) {
+
+    // Determine P1 (Left) and P2 (Right) state based on role
+    // If Host/Single: Player is Left (P1), Opponent is Right (P2)
+    // If Guest: Opponent (Host) is Left (P1), Player (Us) is Right (P2)
+
+    // P1 (Left Side)
+    const p1Ghost = (!isMultiplayer || isHost) ? playerGhostCooldown : opponentGhostCooldown;
+    const p1Triple = (!isMultiplayer || isHost) ? playerTripleCooldown : opponentTripleCooldown;
+    const p1Charge = (!isMultiplayer || isHost) ? playerCharge : opponentCharge;
+    const p1Cooldown = (!isMultiplayer || isHost) ? playerCooldown : opponentCooldown;
+
+    // P2 (Right Side)
+    const p2Ghost = (!isMultiplayer || isHost) ? opponentGhostCooldown : playerGhostCooldown;
+    const p2Triple = (!isMultiplayer || isHost) ? opponentTripleCooldown : playerTripleCooldown;
+    const p2Charge = (!isMultiplayer || isHost) ? opponentCharge : playerCharge;
+    const p2Cooldown = (!isMultiplayer || isHost) ? opponentCooldown : playerCooldown;
+
     return (
         <Stage width={800} height={600} style={{ border: '2px solid #222' }}>
             <Layer>
@@ -77,34 +98,35 @@ export default function GameCanvas({
                     />
                 ))}
 
-                {/* Charge Bars */}
+                {/* Charge Bars - Left (P1) */}
                 <Rect
                     x={20}
                     y={580}
-                    width={150 * (playerCooldown > 0 ? playerCooldown / 600 : playerCharge / 100)}
+                    width={150 * (p1Cooldown > 0 ? p1Cooldown / 600 : p1Charge / 100)}
                     height={8}
-                    fill={playerCooldown > 0 ? "#555" : "#00ff88"}
+                    fill={p1Cooldown > 0 ? "#555" : "#00ff88"}
                     cornerRadius={4}
-                    shadowBlur={playerCooldown > 0 ? 0 : 10}
+                    shadowBlur={p1Cooldown > 0 ? 0 : 10}
                     shadowColor="#00ff88"
                 />
                 <Text
                     x={20}
                     y={565}
-                    text={playerCooldown > 0 ? `COOLDOWN (${Math.ceil(playerCooldown / 60)}s)` : "CHARGE"}
+                    text={p1Cooldown > 0 ? `COOLDOWN (${Math.ceil(p1Cooldown / 60)}s)` : "CHARGE"}
                     fontSize={10}
-                    fill={playerCooldown > 0 ? "#ff3366" : "#00ff88"}
+                    fill={p1Cooldown > 0 ? "#ff3366" : "#00ff88"}
                     fontFamily="monospace"
                 />
 
+                {/* Charge Bars - Right (P2) */}
                 <Rect
-                    x={800 - 20 - (150 * (opponentCooldown > 0 ? opponentCooldown / 600 : opponentCharge / 100))}
+                    x={800 - 20 - (150 * (p2Cooldown > 0 ? p2Cooldown / 600 : p2Charge / 100))}
                     y={580}
-                    width={150 * (opponentCooldown > 0 ? opponentCooldown / 600 : opponentCharge / 100)}
+                    width={150 * (p2Cooldown > 0 ? p2Cooldown / 600 : p2Charge / 100)}
                     height={8}
-                    fill={opponentCooldown > 0 ? "#555" : "#ff3366"}
+                    fill={p2Cooldown > 0 ? "#555" : "#ff3366"}
                     cornerRadius={4}
-                    shadowBlur={opponentCooldown > 0 ? 0 : 10}
+                    shadowBlur={p2Cooldown > 0 ? 0 : 10}
                     shadowColor="#ff3366"
                 />
                 <Text
@@ -112,21 +134,32 @@ export default function GameCanvas({
                     y={565}
                     width={150}
                     align="right"
-                    text={opponentCooldown > 0 ? `COOLDOWN (${Math.ceil(opponentCooldown / 60)}s)` : "CHARGE"}
+                    text={p2Cooldown > 0 ? `COOLDOWN (${Math.ceil(p2Cooldown / 60)}s)` : "CHARGE"}
                     fontSize={10}
-                    fill={opponentCooldown > 0 ? "#ff3366" : "#ff3366"}
+                    fill={p2Cooldown > 0 ? "#ff3366" : "#ff3366"}
                     fontFamily="monospace"
                 />
 
-                {/* New Power Cooldowns */}
+                {/* P1 Power Cooldowns (Left) */}
                 <Group x={20} y={530}>
-                    <Text text="GHOST" fontSize={10} fill={ghostCooldown > 0 ? "#555" : "#00ffff"} fontFamily="monospace" />
-                    <Rect y={12} width={60 * (ghostCooldown > 0 ? ghostCooldown / 1200 : 1)} height={4} fill={ghostCooldown > 0 ? "#222" : "#00ffff"} />
+                    <Text text="GHOST" fontSize={10} fill={p1Ghost > 0 ? "#555" : "#00ffff"} fontFamily="monospace" />
+                    <Rect y={12} width={60 * (p1Ghost > 0 ? p1Ghost / 1200 : 1)} height={4} fill={p1Ghost > 0 ? "#222" : "#00ffff"} />
                 </Group>
 
                 <Group x={100} y={530}>
-                    <Text text="TRIPLE" fontSize={10} fill={tripleCooldown > 0 ? "#555" : "#ffaa00"} fontFamily="monospace" />
-                    <Rect y={12} width={60 * (tripleCooldown > 0 ? tripleCooldown / 600 : 1)} height={4} fill={tripleCooldown > 0 ? "#222" : "#ffaa00"} />
+                    <Text text="TRIPLE" fontSize={10} fill={p1Triple > 0 ? "#555" : "#ffaa00"} fontFamily="monospace" />
+                    <Rect y={12} width={60 * (p1Triple > 0 ? p1Triple / 600 : 1)} height={4} fill={p1Triple > 0 ? "#222" : "#ffaa00"} />
+                </Group>
+
+                {/* P2 Power Cooldowns (Right) */}
+                <Group x={720} y={530}>
+                    <Text text="GHOST" fontSize={10} fill={p2Ghost > 0 ? "#555" : "#00ffff"} fontFamily="monospace" />
+                    <Rect y={12} width={60 * (p2Ghost > 0 ? p2Ghost / 1200 : 1)} height={4} fill={p2Ghost > 0 ? "#222" : "#00ffff"} />
+                </Group>
+
+                <Group x={640} y={530}>
+                    <Text text="TRIPLE" fontSize={10} fill={p2Triple > 0 ? "#555" : "#ffaa00"} fontFamily="monospace" />
+                    <Rect y={12} width={60 * (p2Triple > 0 ? p2Triple / 600 : 1)} height={4} fill={p2Triple > 0 ? "#222" : "#ffaa00"} />
                 </Group>
 
                 {/* Power Message */}
@@ -169,7 +202,7 @@ export default function GameCanvas({
                 <Text
                     x={225}
                     y={100}
-                    text="YOU"
+                    text={isMultiplayer ? (isHost ? "YOU (P1)" : "P1") : "YOU"}
                     fontSize={24}
                     fill="#00ff88"
                     fontFamily="monospace"
@@ -182,7 +215,7 @@ export default function GameCanvas({
                 <Text
                     x={385}
                     y={100}
-                    text="AI"
+                    text={isMultiplayer ? (isHost ? "P2" : "YOU (P2)") : "AI"}
                     fontSize={24}
                     fill="#ff3366"
                     fontFamily="monospace"
