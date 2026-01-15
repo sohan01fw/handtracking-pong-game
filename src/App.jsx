@@ -3,6 +3,11 @@ import GameCanvas from './components/GameCanvas';
 import { processHandInput, updateOpponentPaddle } from './agents/logicAgent';
 import { useHandTracking } from './hooks/useHandTracking';
 import { useMultiplayer } from './hooks/useMultiplayer';
+import { CONSTANTS } from './game/constants';
+import { updateSinglePlayer } from './game/singlePlayer';
+import { updateMultiplayerHost } from './game/multiPlayer';
+import { updatePhysics } from './game/physics';
+import { updatePowerCooldowns } from './game/powerLogic';
 
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
@@ -224,47 +229,10 @@ export default function App() {
             setOpponentPaddle(prev => ({ ...prev, y: data.y }));
             setOpponentCharge(data.charge);
 
-            // Handle guest gesture for powers
+            // Update gesture history for stability checks in game loop
             if (data.raisedFingers !== undefined) {
                 opponentFingerHistory.current.push(data.raisedFingers);
                 if (opponentFingerHistory.current.length > 5) opponentFingerHistory.current.shift();
-
-                const stableOpponentFingers = opponentFingerHistory.current.every(v => v === data.raisedFingers) ? data.raisedFingers : null;
-
-                // Guest Ghost Ball
-                if (stableOpponentFingers === 2 && !opponentWasTwoFingers.current && opponentGhostCooldown <= 0 && ball.velocityX < 0) {
-                    setGhostActive(120);
-                    setOpponentGhostCooldown(1200);
-                    setGhostOwner('opponent');
-                    setPowerMessage(isMultiplayer ? "P2 GHOST BALL!" : "AI GHOST BALL!");
-                    setTimeout(() => setPowerMessage(""), 1000);
-                }
-                opponentWasTwoFingers.current = stableOpponentFingers === 2;
-
-                // Guest Triple Threat
-                if (stableOpponentFingers === 3 && !opponentWasThreeFingers.current && opponentTripleCooldown <= 0 && ball.velocityX < 0 && opponentHitSinceReset.current) {
-                    setDecoys([
-                        {
-                            x: ball.x,
-                            y: ball.y,
-                            velocityX: ball.velocityX * (0.8 + Math.random() * 0.4),
-                            velocityY: (Math.random() - 0.5) * 15,
-                            id: Math.random()
-                        },
-                        {
-                            x: ball.x,
-                            y: ball.y,
-                            velocityX: ball.velocityX * (0.8 + Math.random() * 0.4),
-                            velocityY: (Math.random() - 0.5) * 15,
-                            id: Math.random()
-                        }
-                    ]);
-                    setOpponentTripleCooldown(600);
-                    setPowerMessage(isMultiplayer ? "P2 TRIPLE THREAT!" : "AI TRIPLE THREAT!");
-                    opponentHitSinceReset.current = false;
-                    setTimeout(() => setPowerMessage(""), 1000);
-                }
-                opponentWasThreeFingers.current = stableOpponentFingers === 3;
             }
 
             // Handle guest "release" for blast
@@ -359,207 +327,160 @@ export default function App() {
         const gameLoop = () => {
             if (winner || gameState !== 'playing') return;
 
-            let action;
-            if (controlMode === 'hand') {
-                action = processHandInput(handPosition, CANVAS_WIDTH, CANVAS_HEIGHT);
-            } else {
-                // Keyboard Input Logic
-                const speed = 8;
-                let newY = playerPaddle.y;
-                if (keysPressed.current['w'] || keysPressed.current['arrowup']) newY -= speed;
-                if (keysPressed.current['s'] || keysPressed.current['arrowdown']) newY += speed;
+            // 1. Update Powers and Inputs (Paddles, Charges, Cooldowns)
+            const updateState = {
+                setPlayerPaddle, setOpponentPaddle,
+                setPlayerCharge, setOpponentCharge,
+                setGhostActive, setGhostOwner, setDecoys,
+                setPlayerGhostCooldown, setOpponentGhostCooldown,
+                setPlayerTripleCooldown, setOpponentTripleCooldown,
+                setPowerMessage
+            };
 
-                action = {
-                    object_action: "move_paddle",
-                    action_value: newY + PADDLE_HEIGHT / 2,
-                    isSqueezing: keysPressed.current[' '],
-                    raisedFingers: keysPressed.current['q'] ? 2 : (keysPressed.current['e'] ? 3 : 0),
-                    notes: "Keyboard Mode: W/S to move, Space to Charge, Q for Ghost (2F), E for Triple (3F)"
-                };
-            }
-            setActionData(action);
+            const refs = {
+                playerWasSqueezing, opponentWasCharging,
+                playerReleaseTime, opponentReleaseTime,
+                playerHitSinceReset, opponentHitSinceReset,
+                opponentFingerHistory, fingerHistory,
+                decoys
+            };
 
-            if (action.object_action === 'move_paddle') {
-                setPlayerPaddle(prev => ({
-                    ...prev,
-                    y: Math.max(0, Math.min(CANVAS_HEIGHT - PADDLE_HEIGHT, action.action_value - PADDLE_HEIGHT / 2))
-                }));
-            }
+            const cooldowns = {
+                playerCooldown, opponentCooldown,
+                playerGhostCooldown, opponentGhostCooldown,
+                playerTripleCooldown, opponentTripleCooldown,
+                ghostActive
+            };
 
-            // User charging logic (only if not on cooldown)
-            // MOVED UP to ensure Guest runs this before returning
-            if (action.isSqueezing && playerCooldown <= 0) {
-                setPlayerCharge(prev => Math.min(100, prev + 1.5));
-            } else {
-                if (playerWasSqueezing.current) {
-                    playerReleaseTime.current = Date.now();
-                }
-                setPlayerCharge(prev => Math.max(0, prev - 1));
-            }
-            playerWasSqueezing.current = action.isSqueezing;
+            // Decrement Cooldowns (Running every frame)
+            const nextCooldowns = updatePowerCooldowns(cooldowns);
+            setPlayerCooldown(nextCooldowns.playerCooldown);
+            setOpponentCooldown(nextCooldowns.opponentCooldown);
+            setPlayerGhostCooldown(nextCooldowns.playerGhostCooldown);
+            setOpponentGhostCooldown(nextCooldowns.opponentGhostCooldown);
+            setPlayerTripleCooldown(nextCooldowns.playerTripleCooldown);
+            setOpponentTripleCooldown(nextCooldowns.opponentTripleCooldown);
+            setGhostActive(nextCooldowns.ghostActive);
+            if (nextCooldowns.ghostActive === 0 && ghostActive > 0) setGhostOwner(null);
 
-            // Sync Guest's paddle to Host
-            if (isMultiplayer && !mp.isHost) {
-                mp.sendData({
-                    type: 'paddle_update',
-                    y: Math.max(0, Math.min(CANVAS_HEIGHT - PADDLE_HEIGHT, action.action_value - PADDLE_HEIGHT / 2)),
-                    isSqueezing: action.isSqueezing,
-                    charge: playerCharge, // Now this will be updated in next render, might be 1 frame lag but signals are correct
-                    raisedFingers: action.raisedFingers
-                });
+            let action = null; // For debug display
 
-                // For Guest, the game loop ends here for physics
-                animationRef.current = requestAnimationFrame(gameLoop);
-                return;
-            }
-
-            if (isMultiplayer && mp.isHost) {
-                // Host sends full state to Guest
-                mp.sendData({
-                    type: 'game_state',
-                    ball,
-                    p1Y: playerPaddle.y,
-                    p1Charge: playerCharge,
-                    score,
-                    winner,
-                    powerMessage,
-                    ghostActive,
-                    ghostOwner,
-                    decoys,
-                    p1Cooldown: playerCooldown,
-                    p2Cooldown: opponentCooldown,
-                    p1GhostCooldown: playerGhostCooldown,
-                    p2GhostCooldown: opponentGhostCooldown,
-                    p1TripleCooldown: playerTripleCooldown,
-                    p2TripleCooldown: opponentTripleCooldown,
-                    controlMode, // Host dictates control mode
-                    gameState // Host dictates game state
-                });
-            }
-
-            // AI/Opponent Logic - ONLY if NOT Multiplayer
-            if (!isMultiplayer) {
-                const aiControl = updateOpponentPaddle(ball.y, opponentPaddle.y, PADDLE_HEIGHT, ball.x, CANVAS_WIDTH, ball.velocityX);
-                setOpponentPaddle(prev => ({
-                    ...prev,
-                    y: Math.max(0, Math.min(CANVAS_HEIGHT - PADDLE_HEIGHT, aiControl.y))
-                }));
-
-                // AI charging logic (only if not on cooldown)
-                if (aiControl.shouldCharge && opponentCooldown <= 0) {
-                    setOpponentCharge(prev => Math.min(100, prev + 1.2));
-                    opponentWasCharging.current = true;
+            if (isMultiplayer) {
+                if (mp.isHost) {
+                    updateMultiplayerHost({
+                        ball, playerPaddle, opponentPaddle,
+                        playerCharge, opponentCharge,
+                        cooldowns, keysPressed, handPosition,
+                        controlMode, processHandInput,
+                        updateState, refs, mp
+                    });
                 } else {
-                    if (opponentWasCharging.current && aiControl.shouldRelease) {
-                        opponentReleaseTime.current = Date.now();
+                    // Guest Logic: Just send input and sync paddle locally
+                    let guestAction;
+                    if (controlMode === 'hand') {
+                        guestAction = processHandInput(handPosition, CONSTANTS.CANVAS_WIDTH, CONSTANTS.CANVAS_HEIGHT);
+                    } else {
+                        // Keyboard Input Logic (Guest)
+                        const speed = 8;
+                        let newY = playerPaddle.y; // Guest is 'player' locally
+                        if (keysPressed.current['w'] || keysPressed.current['arrowup']) newY -= speed;
+                        if (keysPressed.current['s'] || keysPressed.current['arrowdown']) newY += speed;
+
+                        guestAction = {
+                            object_action: "move_paddle",
+                            action_value: newY + CONSTANTS.PADDLE_HEIGHT / 2,
+                            isSqueezing: keysPressed.current[' '],
+                            raisedFingers: keysPressed.current['q'] ? 2 : (keysPressed.current['e'] ? 3 : 0)
+                        };
                     }
-                    opponentWasCharging.current = false;
-                    setOpponentCharge(prev => Math.max(0, prev - 1));
+                    action = guestAction;
+                    setActionData(action);
+
+                    if (guestAction.object_action === 'move_paddle') {
+                        setPlayerPaddle(prev => ({
+                            ...prev,
+                            y: Math.max(0, Math.min(CONSTANTS.CANVAS_HEIGHT - CONSTANTS.PADDLE_HEIGHT, guestAction.action_value - CONSTANTS.PADDLE_HEIGHT / 2))
+                        }));
+                    }
+
+                    // Guest Charge Preview
+                    if (guestAction.isSqueezing && playerCooldown <= 0) {
+                        setPlayerCharge(prev => Math.min(100, prev + 1.5));
+                    } else {
+                        setPlayerCharge(prev => Math.max(0, prev - 1));
+                    }
+
+                    // Send Data
+                    mp.sendData({
+                        type: 'paddle_update',
+                        y: Math.max(0, Math.min(CONSTANTS.CANVAS_HEIGHT - CONSTANTS.PADDLE_HEIGHT, guestAction.action_value - CONSTANTS.PADDLE_HEIGHT / 2)),
+                        isSqueezing: guestAction.isSqueezing,
+                        charge: playerCharge,
+                        raisedFingers: guestAction.raisedFingers
+                    });
+
+                    animationRef.current = requestAnimationFrame(gameLoop);
+                    return;
                 }
+            } else {
+                // Single Player
+                const result = updateSinglePlayer({
+                    ball, playerPaddle, opponentPaddle, score,
+                    playerCharge, opponentCharge,
+                    cooldowns, keysPressed, handPosition,
+                    controlMode, processHandInput,
+                    updateState, refs
+                });
+                action = result.playerAction;
+                setActionData(action);
             }
 
-            setBall(prev => {
-                let newX = prev.x + prev.velocityX;
-                let newY = prev.y + prev.velocityY;
-                let newVelocityX = prev.velocityX;
-                let newVelocityY = prev.velocityY;
-
-                if (newY - BALL_RADIUS < 0 || newY + BALL_RADIUS > CANVAS_HEIGHT) {
-                    newVelocityY = -newVelocityY;
-                    newY = Math.max(BALL_RADIUS, Math.min(CANVAS_HEIGHT - BALL_RADIUS, newY));
-                }
-
-                if (newX - BALL_RADIUS < playerPaddle.x + PADDLE_WIDTH &&
-                    newX + BALL_RADIUS > playerPaddle.x &&
-                    newY > playerPaddle.y &&
-                    newY < playerPaddle.y + PADDLE_HEIGHT) {
-
-                    let multiplier = 1;
-                    const timeSinceRelease = Date.now() - playerReleaseTime.current;
-                    if (timeSinceRelease < 400 && playerCharge > 30 && playerCooldown <= 0) {
-                        multiplier = 3.5;
-                        setPlayerCharge(0);
-                        setPlayerCooldown(600);
-                        setPowerMessage("POWER BLAST!");
-                        setTimeout(() => setPowerMessage(""), 1000);
-                    }
-
-                    newVelocityX = Math.abs(newVelocityX) * multiplier;
-                    newX = playerPaddle.x + PADDLE_WIDTH + BALL_RADIUS;
-                    const hitPos = (newY - playerPaddle.y) / PADDLE_HEIGHT - 0.5;
-                    newVelocityY += hitPos * 5;
-                    playerHitSinceReset.current = true; // Mark as hit by player
-                    if (soundEnabled) paddleHitSound.play().catch(() => { });
-                }
-
-                if (newX + BALL_RADIUS > opponentPaddle.x &&
-                    newX - BALL_RADIUS < opponentPaddle.x + PADDLE_WIDTH &&
-                    newY > opponentPaddle.y &&
-                    newY < opponentPaddle.y + PADDLE_HEIGHT) {
-
-                    let multiplier = 1;
-                    const timeSinceRelease = Date.now() - opponentReleaseTime.current;
-                    if (timeSinceRelease < 400 && opponentCharge > 30 && opponentCooldown <= 0) {
-                        multiplier = 3.5;
-                        setOpponentCharge(0);
-                        setOpponentCooldown(600);
-                        setPowerMessage(isMultiplayer ? "P2 BLAST!" : "AI BLAST!");
-                        setTimeout(() => setPowerMessage(""), 1000);
-                    }
-
-                    newVelocityX = -Math.abs(newVelocityX) * multiplier;
-                    newX = opponentPaddle.x - BALL_RADIUS;
-                    const hitPos = (newY - opponentPaddle.y) / PADDLE_HEIGHT - 0.5;
-                    newVelocityY += hitPos * 5;
-                    opponentHitSinceReset.current = true; // Mark as hit by opponent
-                    if (soundEnabled) paddleHitSound.play().catch(() => { });
-                }
-
-                if (newX < 0) {
-                    setScore(s => {
-                        const newOpponentScore = s.opponent + 1;
-                        if (newOpponentScore >= WINNING_SCORE) {
-                            setWinner('AI');
-                            if (soundEnabled) winSound.play().catch(() => { });
-                        }
-                        return { ...s, opponent: newOpponentScore };
+            // 2. Physics & Ball Update (Host or SP)
+            if (!isMultiplayer || mp.isHost) {
+                setBall(prevBall => {
+                    const physicsState = updatePhysics({
+                        ball: prevBall,
+                        playerPaddle, opponentPaddle,
+                        playerCharge, opponentCharge,
+                        playerCooldown, opponentCooldown,
+                        ghostActive, ghostOwner,
+                        soundEnabled,
+                        refs,
+                        setters: {
+                            setScore, setWinner, // setBall not needed, we return new ball
+                            setPlayerCharge, setOpponentCharge,
+                            setPlayerCooldown, setOpponentCooldown,
+                            setPowerMessage, setDecoys
+                        },
+                        callbacks: { paddleHitSound, winSound }
                     });
-                    playerHitSinceReset.current = false;
-                    opponentHitSinceReset.current = false;
-                    return { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, radius: BALL_RADIUS, velocityX: 5, velocityY: 3 };
-                }
+                    return physicsState;
+                });
 
-                if (newX > CANVAS_WIDTH) {
-                    setScore(s => {
-                        const newPlayerScore = s.player + 1;
-                        if (newPlayerScore >= WINNING_SCORE) {
-                            setWinner('YOU');
-                            if (soundEnabled) winSound.play().catch(() => { });
-                        }
-                        return { ...s, player: newPlayerScore };
+                // Host Sync Send
+                if (isMultiplayer && mp.isHost) {
+                    mp.sendData({
+                        type: 'game_state',
+                        ball,
+                        p1Y: playerPaddle.y,
+                        p1Charge: playerCharge,
+                        score,
+                        winner,
+                        powerMessage,
+                        ghostActive,
+                        ghostOwner,
+                        decoys,
+                        p1Cooldown: playerCooldown,
+                        p2Cooldown: opponentCooldown,
+                        p1GhostCooldown: playerGhostCooldown,
+                        p2GhostCooldown: opponentGhostCooldown,
+                        p1TripleCooldown: playerTripleCooldown,
+                        p2TripleCooldown: opponentTripleCooldown,
+                        controlMode,
+                        gameState
                     });
-                    playerHitSinceReset.current = false;
-                    opponentHitSinceReset.current = false;
-                    return { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2, radius: BALL_RADIUS, velocityX: -5, velocityY: 3 };
                 }
-
-                newVelocityY = Math.max(-15, Math.min(15, newVelocityY));
-                newVelocityX = Math.max(-35, Math.min(35, (newVelocityX < 0 ? Math.min(-5, newVelocityX) : Math.max(5, newVelocityX))));
-
-                if (newX < 100 || newX > CANVAS_WIDTH - 100) {
-                    setDecoys([]);
-                }
-
-                return {
-                    ...prev,
-                    x: newX,
-                    y: newY,
-                    velocityX: newVelocityX,
-                    velocityY: newVelocityY,
-                    isPowered: Math.abs(newVelocityX) > 12,
-                    isGhost: ghostActive > 0 && (ghostOwner === 'player' ? newVelocityX > 0 : newVelocityX < 0)
-                };
-            });
+            }
 
             animationRef.current = requestAnimationFrame(gameLoop);
         };

@@ -37,7 +37,7 @@ export function processHandInput(handPosition, canvasWidth, canvasHeight) {
 
         // Stricter check: Tip must be above MCP AND significantly further from wrist
         const yDiff = mcp.y - tip.y;
-        return yDiff > 0.05 && distTip > distMcp * 1.25;
+        return yDiff > -0.02 && distTip > distMcp * 1.1;
     };
 
     let raisedFingers = 0;
